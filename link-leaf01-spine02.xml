@@ -1,0 +1,9 @@
+<interface type='udp'>
+  <target dev='swp32'/>
+  <mac address='52:54:00:ee:ee:02'/>
+  <model type='virtio'/>
+  <source address='127.1.1.4' port='10001'>
+    <local address='127.1.1.1' port='10002'/>
+  </source>
+  <address type='pci' domain='0x0000' bus='0x09' slot='0x00' function='0x0'/>
+</interface>
