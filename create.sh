@@ -72,18 +72,16 @@ for index in "${!VMS[@]}"; do
 instance-id: ${vm}
 hostname: ${vm}
 EOF
-cat > network-config <<-EOF
+  cat > network-config <<-EOF
 version: 2
-vrfs:
-  vrf-main:
-    table: 1000
-    interfaces: [swp1, swp2]
 ethernets:
   eth0:
     set-name: eth0
     dhcp4: true
     match:
       macaddress: '$mac'
+EOF
+  [[ ! $vm =~ *oob-mgmt-* ]] && cat >> network-config <<-EOF
   swp1:
     set-name: swp1
     match:
@@ -92,9 +90,13 @@ ethernets:
     set-name: swp2
     match:
       name: enp9s0
+vrfs:
+  vrf-main:
+    table: 1000
+    interfaces: [swp1, swp2]
 EOF
   # different BGP ASN for spines
-  [[ $vm =~ *spine* ]] && bgp_as=$SPINE_AS || bgp_as=$((65500 + $index))
+  echo "$vm" | grep -q spine && bgp_as=$SPINE_AS || bgp_as=$((65500 + $index))
   cat > user-data <<-EOF
 #cloud-config
 users:
@@ -109,14 +111,24 @@ package_update: true
 packages:
 - lldpd
 - frr
+EOF
+  [[ ! $vm =~ *oob-mgmt-* ]] && cat >> user-data <<-EOF
 runcmd:
 - netplan apply
-- ip address add 10.1.1.$index/32 dev vrf-main
+- sysctl -w net.ipv4.ip_forward=1
+- sysctl -w net.ipv6.conf.default.forwarding=1
+- sysctl -w net.ipv6.conf.all.forwarding=1
 - systemctl enable lldpd.service
 - systemctl start lldpd.service
+- ip address add 10.1.1.$index/32 dev vrf-main
 - sed -i -e's/^bgpd=no/bgpd=yes/' -e 's/^bfdd=no/bfdd=yes/' -e 's/^#frr_profile="datacenter"/frr_profile="datacenter"/' /etc/frr/daemons
 - systemctl restart frr.service
 write_files:
+- content: |
+    net.ipv4.ip_forward=1
+    net.ipv6.conf.default.forwarding=1
+    net.ipv6.conf.all.forwarding=1
+  path: /etc/sysctl.d/30-ipforward.conf
 - content: |
     log syslog informational
     route-map REDISTRIBUTE permit 10
@@ -127,6 +139,7 @@ write_files:
       bgp bestpath as-path multipath-relax
       neighbor fabric peer-group
       neighbor fabric remote-as external
+      neighbor fabric bfd
       neighbor swp1 interface peer-group fabric
       neighbor swp2 interface peer-group fabric
       address-family ipv4 unicast
